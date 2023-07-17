@@ -10,129 +10,111 @@ import (
 	"github.com/mailru/easyjson"
 )
 
-func TestEmptySettingsLeadsToApproval(t *testing.T) {
-	settings := Settings{}
-	pod := corev1.Pod{
-		Metadata: &metav1.ObjectMeta{
-			Name:      "test-pod",
-			Namespace: "default",
+func TestValidateLabel(t *testing.T) {
+	tests := []struct {
+		name              string
+		podLabels         map[string]string
+		deniedLabels      []string
+		constrainedLabels map[string]string
+		expectedIsValid   bool
+	}{
+		{
+			name:              "pod without labels is accepted",
+			podLabels:         make(map[string]string),
+			deniedLabels:      []string{"owner"},
+			constrainedLabels: make(map[string]string),
+			expectedIsValid:   true,
+		},
+		{
+			name: "pod without denied labels is accepted",
+			podLabels: map[string]string{
+				"hello": "world",
+			},
+			deniedLabels:      []string{"owner"},
+			constrainedLabels: make(map[string]string),
+			expectedIsValid:   true,
+		},
+		{
+			name: "pod with a denied label is rejected",
+			podLabels: map[string]string{
+				"hello": "world",
+			},
+			deniedLabels:      []string{"hello"},
+			constrainedLabels: make(map[string]string),
+			expectedIsValid:   false,
+		},
+		{
+			name: "pod with a satisfied constraint label is accepted",
+			podLabels: map[string]string{
+				"cc-center": "team-123",
+			},
+			deniedLabels: []string{"hello"},
+			constrainedLabels: map[string]string{
+				"cc-center": `team-\d+`,
+			},
+			expectedIsValid: true,
+		},
+		{
+			name: "pod with an unsatisfied constraint label is rejected",
+			podLabels: map[string]string{
+				"cc-center": "team-kubewarden",
+			},
+			deniedLabels: []string{"hello"},
+			constrainedLabels: map[string]string{
+				"cc-center": `team-\d+`,
+			},
+			expectedIsValid: false,
+		},
+		{
+			name: "pod missing a constrained label is rejected",
+			podLabels: map[string]string{
+				"owner": "team-kubewarden",
+			},
+			deniedLabels: []string{"hello"},
+			constrainedLabels: map[string]string{
+				"cc-center": `team-\d+`,
+			},
+			expectedIsValid: false,
 		},
 	}
 
-	payload, err := kubewarden_testing.BuildValidationRequest(&pod, &settings)
-	if err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			basicSettings := BasicSettings{
+				DeniedLabels:      test.deniedLabels,
+				ConstrainedLabels: test.constrainedLabels,
+			}
 
-	responsePayload, err := validate(payload)
-	if err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
+			pod := corev1.Pod{
+				Metadata: &metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "default",
+					Labels:    test.podLabels,
+				},
+			}
 
-	var response kubewarden_protocol.ValidationResponse
-	if err := easyjson.Unmarshal(responsePayload, &response); err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
+			payload, err := kubewarden_testing.BuildValidationRequest(&pod, &basicSettings)
+			if err != nil {
+				t.Errorf("Unexpected request error: %+v", err)
+			}
 
-	if response.Accepted != true {
-		t.Errorf("Unexpected rejection: msg %s - code %d", *response.Message, *response.Code)
-	}
-}
+			responsePayload, err := validate(payload)
+			if err != nil {
+				t.Errorf("Unexpected validation error: %+v", err)
+			}
 
-func TestApproval(t *testing.T) {
-	settings := Settings{
-		DeniedNames: []string{"foo", "bar"},
-	}
-	pod := corev1.Pod{
-		Metadata: &metav1.ObjectMeta{
-			Name:      "test-pod",
-			Namespace: "default",
-		},
-	}
+			var response kubewarden_protocol.ValidationResponse
+			if err = easyjson.Unmarshal(responsePayload, &response); err != nil {
+				t.Errorf("Unexpected response error: %+v", err)
+			}
 
-	payload, err := kubewarden_testing.BuildValidationRequest(&pod, &settings)
-	if err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
+			if test.expectedIsValid && !response.Accepted {
+				t.Errorf("Unexpected rejection: %s", *response.Message)
+			}
 
-	responsePayload, err := validate(payload)
-	if err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
-
-	var response kubewarden_protocol.ValidationResponse
-	if err := easyjson.Unmarshal(responsePayload, &response); err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
-
-	if response.Accepted != true {
-		t.Error("Unexpected rejection")
-	}
-}
-
-func TestApproveFixture(t *testing.T) {
-	settings := Settings{
-		DeniedNames: []string{},
-	}
-
-	payload, err := kubewarden_testing.BuildValidationRequestFromFixture(
-		"test_data/pod.json",
-		&settings)
-	if err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
-
-	responsePayload, err := validate(payload)
-	if err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
-
-	var response kubewarden_protocol.ValidationResponse
-	if err := easyjson.Unmarshal(responsePayload, &response); err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
-
-	if response.Accepted != true {
-		t.Error("Unexpected rejection")
-	}
-}
-
-func TestRejectionBecauseNameIsDenied(t *testing.T) {
-	settings := Settings{
-		DeniedNames: []string{"foo", "test-pod"},
-	}
-
-	pod := corev1.Pod{
-		Metadata: &metav1.ObjectMeta{
-			Name:      "test-pod",
-			Namespace: "default",
-		},
-	}
-
-	payload, err := kubewarden_testing.BuildValidationRequest(&pod, &settings)
-	if err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
-
-	responsePayload, err := validate(payload)
-	if err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
-
-	var response kubewarden_protocol.ValidationResponse
-	if err := easyjson.Unmarshal(responsePayload, &response); err != nil {
-		t.Errorf("Unexpected error: %+v", err)
-	}
-
-	if response.Accepted != false {
-		t.Error("Unexpected approval")
-	}
-
-	expected_message := "The 'test-pod' name is on the deny list"
-	if response.Message == nil {
-		t.Errorf("expected response to have a message")
-	}
-	if *response.Message != expected_message {
-		t.Errorf("Got '%s' instead of '%s'", *response.Message, expected_message)
+			if !test.expectedIsValid && response.Accepted {
+				t.Errorf("Unexpected acceptance")
+			}
+		})
 	}
 }
