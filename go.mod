@@ -1,4 +1,4 @@
-module github.com/kubewarden/go-policy-template
+module github.com/atanasdinov/kw-validation-policy
 
 go 1.20
 
