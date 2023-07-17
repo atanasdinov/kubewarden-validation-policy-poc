@@ -18,6 +18,7 @@ package main
 // going to play out well with TinyGo at **runtime** due to its limited
 // support of Go reflection.
 
-type Settings struct {
-	DeniedNames []string `json:"denied_names"`
+type BasicSettings struct {
+	DeniedLabels      []string          `json:"denied_labels"`
+	ConstrainedLabels map[string]string `json:"constrained_labels"`
 }

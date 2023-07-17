@@ -1,53 +1,78 @@
 package main
 
 import (
+	"fmt"
+	"regexp"
+
+	mapset "github.com/deckarep/golang-set"
 	kubewarden "github.com/kubewarden/policy-sdk-go"
 	kubewarden_protocol "github.com/kubewarden/policy-sdk-go/protocol"
 	"github.com/mailru/easyjson"
-
-	"fmt"
 )
 
-// The Settings class is defined inside of the `types.go` file
+const invalidSettingsMessage = "Provided settings are not valid"
 
-// No special checks have to be done
-func (s *Settings) Valid() (bool, error) {
-	return true, nil
-}
-
-func (s *Settings) IsNameDenied(name string) bool {
-	for _, deniedName := range s.DeniedNames {
-		if deniedName == name {
-			return true
-		}
-	}
-
-	return false
+type Settings struct {
+	DeniedLabels      mapset.Set
+	ConstrainedLabels map[string]*regexp.Regexp
 }
 
 func NewSettingsFromValidationReq(validationReq *kubewarden_protocol.ValidationRequest) (Settings, error) {
-	settings := Settings{}
-	err := easyjson.Unmarshal(validationReq.Settings, &settings)
-	return settings, err
+	return newSettings(validationReq.Settings)
+}
+
+func (s *Settings) Validate() error {
+	constrainedLabels := mapset.NewThreadUnsafeSet()
+
+	for label := range s.ConstrainedLabels {
+		constrainedLabels.Add(label)
+	}
+
+	constrainedAndDenied := constrainedLabels.Intersect(s.DeniedLabels)
+	if constrainedAndDenied.Cardinality() != 0 {
+		return fmt.Errorf("the following labels cannot be constrained and denied at the same time: %v", constrainedAndDenied)
+	}
+
+	return nil
+}
+
+func newSettings(settingsJson []byte) (Settings, error) {
+	basicSettings := BasicSettings{}
+	err := easyjson.Unmarshal(settingsJson, &basicSettings)
+	if err != nil {
+		return Settings{}, err
+	}
+
+	deniedLabels := mapset.NewThreadUnsafeSet()
+	for _, label := range basicSettings.DeniedLabels {
+		deniedLabels.Add(label)
+	}
+
+	constrainedLabels := make(map[string]*regexp.Regexp)
+	for name, expr := range basicSettings.ConstrainedLabels {
+		reg, err := regexp.Compile(expr)
+		if err != nil {
+			return Settings{}, fmt.Errorf("compiling regexp %s: %w", expr, err)
+		}
+		constrainedLabels[name] = reg
+	}
+
+	return Settings{
+		DeniedLabels:      deniedLabels,
+		ConstrainedLabels: constrainedLabels,
+	}, nil
 }
 
 func validateSettings(payload []byte) ([]byte, error) {
-	logger.Info("validating settings")
-
-	settings := Settings{}
-	err := easyjson.Unmarshal(payload, &settings)
+	settings, err := newSettings(payload)
 	if err != nil {
-		return kubewarden.RejectSettings(kubewarden.Message(fmt.Sprintf("Provided settings are not valid: %v", err)))
+		return kubewarden.RejectSettings(kubewarden.Message(fmt.Sprintf("%s: %v", invalidSettingsMessage, err)))
 	}
 
-	valid, err := settings.Valid()
+	err = settings.Validate()
 	if err != nil {
-		return kubewarden.RejectSettings(kubewarden.Message(fmt.Sprintf("Provided settings are not valid: %v", err)))
-	}
-	if valid {
-		return kubewarden.AcceptSettings()
+		return kubewarden.RejectSettings(kubewarden.Message(fmt.Sprintf("%s: %v", invalidSettingsMessage, err)))
 	}
 
-	logger.Warn("rejecting settings")
-	return kubewarden.RejectSettings(kubewarden.Message("Provided settings are not valid"))
+	return kubewarden.AcceptSettings()
 }
