@@ -1,7 +1,7 @@
-# go-policy-template
+# kubewarden-validation-policy-poc
 
-This is a template repository that can be used to quickly scaffold a
-Kubewarden policy written with Go language.
+A KubeWarden policy PoC showcasing basic validation implementation.
+Generated from the official KubeWarden template repository.
 
 Don't forget to checkout Kubewarden's [official documentation](https://docs.kubewarden.io)
 for more information about writing policies.
@@ -10,15 +10,17 @@ for more information about writing policies.
 
 This repository contains a working policy written in Go.
 
-The policy looks at the `name` of a Kubernetes Pod and rejects the request
-if the name is on a deny list.
+The policy validates the labels of a Kubernetes Pod against pre-configured denied or constrained values.
 
-The deny list is configurable by the user via the runtime settings of the policy.
+The deny and constrained lists are configurable by the user via the runtime settings of the policy.
 The configuration of the policy is expressed via this structure:
 
 ```json
 {
-  "denied_names": [ "badname1", "badname2" ]
+  "denied_labels": [ "label1", "label2" ],
+  "constrained_labels": {
+    "label3": "<regexp>"
+  }
 }
 ```
 
