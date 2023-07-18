@@ -1,0 +1,49 @@
+# Kubewarden Artifacthub Package config
+#
+# Use this config to submit the policy to https://artifacthub.io.
+#
+# This config can be saved to its default location with:
+#   kwctl scaffold artifacthub > artifacthub-pkg.yml 
+version: 0.0.2
+name: safe-labels
+displayName: Safe Labels
+createdAt: 2023-07-18T16:40:29.041426Z
+description: Validates the labels of Kubernetes Pods against user defined deny and constrained lists
+license: Apache-2.0
+homeURL: https://github.com/atanasdinov/kubewarden-validation-policy-poc
+containersImages:
+- name: policy
+  image: ghcr.io/atanasdinov/policies/safe-labels:v0.0.2
+keywords:
+- pod
+- cool policy
+- kubewarden
+links:
+- name: policy
+  url: https://github.com/atanasdinov/kubewarden-validation-policy-poc/releases/download/v0.0.2/policy.wasm
+- name: source
+  url: https://github.com/atanasdinov/kubewarden-validation-policy-poc
+install: |
+  The policy can be obtained using [`kwctl`](https://github.com/kubewarden/kwctl):
+  ```console
+  kwctl pull ghcr.io/atanasdinov/policies/safe-labels:v0.0.2
+  ```
+maintainers:
+- name: Atanas Dinov
+  email: atanas.dinov@suse.com
+provider:
+  name: kubewarden
+recommendations:
+- url: https://artifacthub.io/packages/helm/kubewarden/kubewarden-controller
+annotations:
+  kubewarden/mutation: 'false'
+  kubewarden/resources: Pod
+  kubewarden/rules: |
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      resources:
+      - pods
+      operations:
+      - CREATE
